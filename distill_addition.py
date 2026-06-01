@@ -68,7 +68,9 @@ def main():
     np_s = sum(p.numel() for p in student.parameters())
     print(f"teacher={args.teacher} | student {np_s/1e6:.2f}M | method={args.method}")
     opt = torch.optim.AdamW(student.parameters(), lr=args.lr, weight_decay=0.1)
-    fc = FlopCounter(model_flops_from_config(student.config))
+    # count the frozen teacher's forward FLOPs too (cross_seq halves its batch)
+    fc = FlopCounter(model_flops_from_config(student.config),
+                     teacher_fm=model_flops_from_config(teacher.config))
     g = torch.Generator().manual_seed(args.seed)
     L = seq_len_for(args.n_digits)
     hist = []
@@ -116,6 +118,7 @@ def main():
     results = {"task": "lsb_addition_distill", "method": args.method,
                "n_digits": args.n_digits, "fixed_lambda": args.fixed_lambda,
                "merge_k": args.merge_k, "student_params": np_s,
+               "stage1_steps": args.stage1_steps, "stage2_steps": args.stage2_steps,
                "final": hist[-1] if hist else None, "history": hist, "flops": fc.summary()}
     with open(os.path.join(out, "results.json"), "w") as f:
         json.dump(results, f, indent=2)

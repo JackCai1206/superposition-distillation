@@ -43,23 +43,41 @@ def model_flops_from_config(config) -> FlopModel:
 
 
 class FlopCounter:
-    """Accumulates student training FLOPs and effective data (sequences) seen."""
+    """Accumulates FLOPs and effective data seen.
 
-    def __init__(self, fm: FlopModel):
+    Student: fwd+bwd (3x forward) each step. Teacher (optional): one frozen
+    forward each step on the SAME batch the student sees. Because cross_seq packs
+    two sequences per example, its per-step batch is halved -> the teacher does
+    one forward per two sequences, which is the amortization that matters when the
+    teacher is much larger than the student.
+    """
+
+    def __init__(self, fm: FlopModel, teacher_fm: FlopModel | None = None):
         self.fm = fm
-        self.total_flops = 0.0
+        self.teacher_fm = teacher_fm
+        self.student_flops = 0.0
+        self.teacher_flops = 0.0
         self.sequences_seen = 0.0   # effective #source-sequences of learning signal
         self.tokens_processed = 0.0 # student forward positions
 
     def add_step(self, seq_len: int, batch: int, effective_sequences: float):
-        self.total_flops += self.fm.train_step_flops(seq_len, batch)
+        self.student_flops += self.fm.train_step_flops(seq_len, batch)
+        if self.teacher_fm is not None:
+            self.teacher_flops += self.teacher_fm.forward_flops(seq_len, batch)
         self.tokens_processed += seq_len * batch
         self.sequences_seen += effective_sequences
 
+    @property
+    def total_flops(self) -> float:
+        return self.student_flops + self.teacher_flops
+
     def summary(self) -> dict:
+        tot = self.total_flops
         return {
-            "total_flops": self.total_flops,
+            "total_flops": tot,
+            "student_flops": self.student_flops,
+            "teacher_flops": self.teacher_flops,
             "sequences_seen": self.sequences_seen,
             "tokens_processed": self.tokens_processed,
-            "flops_per_sequence": self.total_flops / max(self.sequences_seen, 1.0),
+            "flops_per_sequence": tot / max(self.sequences_seen, 1.0),
         }
