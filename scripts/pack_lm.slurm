@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
-#SBATCH --time=00:50:00
+#SBATCH --time=02:00:00
 #SBATCH --output=outputs/%x-%j.out
 
 # Pack several TinyStories distill runs onto ONE GPU.
@@ -24,7 +24,7 @@ for spec in "$@"; do
   echo "  launch $m lam=$lam s1=$s1 s2=$s2 seed=$seed"
   .venv/bin/python -u distill_lm.py --teacher "$TEACHER" --method "$m" \
     --fixed_lambda "$lam" --stage1_steps "$s1" --stage2_steps "$s2" --seed "$seed" \
-    --batch_size 64 --seq_len 512 --device cuda --eval_every 100 &
+    --batch_size 32 --seq_len 512 --device cuda --eval_every 100 &
   pids+=($!)
 done
 fail=0
