@@ -18,14 +18,16 @@ from dataclasses import dataclass
 
 @dataclass
 class FlopModel:
-    n_params: int        # non-embedding parameter count (approx ok)
+    n_params: int        # non-embedding (transformer-body) parameter count
     n_layer: int
     d_model: int
+    vocab_size: int = 0  # for the LM-head matmul (negligible at tiny vocab, big at 50k)
 
     def forward_flops(self, seq_len: int, batch: int = 1) -> float:
         dense = 2.0 * self.n_params * seq_len
         attn = 2.0 * 2.0 * self.n_layer * self.d_model * (seq_len ** 2)
-        return (dense + attn) * batch
+        head = 2.0 * self.vocab_size * self.d_model * seq_len   # logits projection
+        return (dense + attn + head) * batch
 
     def train_step_flops(self, seq_len: int, batch: int = 1) -> float:
         return 3.0 * self.forward_flops(seq_len, batch)
@@ -39,7 +41,8 @@ def model_flops_from_config(config) -> FlopModel:
     inter = getattr(config, "intermediate_size", 4 * d_model)
     per_layer = 4 * d_model * d_model + 3 * d_model * inter   # attn qkvo + gate/up/down
     n_params = n_layer * per_layer
-    return FlopModel(n_params=n_params, n_layer=n_layer, d_model=d_model)
+    vocab = getattr(config, "vocab_size", 0)
+    return FlopModel(n_params=n_params, n_layer=n_layer, d_model=d_model, vocab_size=vocab)
 
 
 class FlopCounter:

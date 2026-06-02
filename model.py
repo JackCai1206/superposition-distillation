@@ -31,13 +31,15 @@ def load_model(name: str, dtype=torch.bfloat16, device="cuda", frozen=False):
 
 
 def tiny_model(vocab_size: int, hidden=64, layers=2, heads=4, inter=128,
-               dtype=torch.float32, device="cpu"):
-    """A small random Qwen2-style model for CPU smoke tests (no download)."""
+               dtype=torch.float32, device="cpu", tie_embeddings=False,
+               max_pos=1024):
+    """A small random Qwen2-style model (from-scratch). tie_embeddings halves the
+    embedding cost for large-vocab NL models."""
     cfg = AutoConfig.for_model(
         "qwen2", vocab_size=vocab_size, hidden_size=hidden,
         num_hidden_layers=layers, num_attention_heads=heads,
         num_key_value_heads=heads, intermediate_size=inter,
-        max_position_embeddings=512, tie_word_embeddings=False,
+        max_position_embeddings=max_pos, tie_word_embeddings=tie_embeddings,
     )
     model = AutoModelForCausalLM.from_config(cfg).to(dtype).to(device)
     return model

@@ -1,6 +1,6 @@
-.venv/
-__pycache__/
-*.pyc
-wandb/
-outputs/
 data_cache/
+outputs/
+*.pyc
+__pycache__/
+.venv/
+wandb/
