@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=add10m
-#SBATCH --partition=all
-#SBATCH --account=arora
+#SBATCH --partition=pli-c
+#SBATCH --account=pli
+#SBATCH --qos=pli-medium
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G

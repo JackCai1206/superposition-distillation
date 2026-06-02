@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=packlm
-#SBATCH --partition=all
-#SBATCH --account=arora
+#SBATCH --partition=pli-c
+#SBATCH --account=pli
+#SBATCH --qos=pli-medium
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
