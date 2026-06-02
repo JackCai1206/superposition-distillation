@@ -108,7 +108,7 @@ def main():
             fc.add_step(seq_len=T, batch=outB, effective_sequences=eff * outB)
             gstep += 1
             if step % args.eval_every == 0 or step == steps - 1:
-                vloss = eval_lm_loss(student, val, dev, n_batches=20, batch=32, seq_len=args.seq_len)
+                vloss = eval_lm_loss(student, val, dev, n_batches=30, batch=16, seq_len=args.seq_len)
                 student.train()
                 s = fc.summary()
                 print(f"[{tag}] step {step:>5} loss={loss:.3f} kd={kd:.3f} ce={ce:.3f} "
