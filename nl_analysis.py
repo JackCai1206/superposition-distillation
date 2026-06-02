@@ -34,7 +34,7 @@ def main():
     if not runs:
         print(f"no recorded-flops runs for tag={tag} yet"); return
 
-    base = [r for r in runs if r["method"] == "none" and r.get("stage1_steps") == 0]
+    base = [r for r in runs if r["method"] == "none" and r.get("stage1_steps") == 0 and r.get("stage2_steps", 0) >= 3000]
     sup = [r for r in runs if r["method"] != "none"]
     if not base:
         print(f"no FAIR baseline (none, s1=0) for {tag} yet"); return
