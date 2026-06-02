@@ -63,7 +63,7 @@ for ax, tag in zip(axes, ["ctrl", "gpt2"]):
         f, mu, sd = mean_curve(by[key])
         ax.plot(f, mu, "-", color=c, label=lab)
         ax.fill_between(f, mu - sd, mu + sd, color=c, alpha=0.2)
-    ax.set_xscale("log"); ax.set_xlabel("cumulative recorded FLOPs (student+teacher)")
+    ax.set_xlabel("cumulative recorded FLOPs (student+teacher)")
     ax.set_title(f"{tag} teacher")
     ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
 axes[0].set_ylabel("val loss"); axes[0].set_ylim(1.5, 3.2)
