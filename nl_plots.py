@@ -60,9 +60,19 @@ for ax, tag in zip(axes, ["ctrl", "gpt2"]):
     for key, lab, c in series:
         if key not in by:
             continue
-        f, mu, sd = mean_curve(by[key])
+        runs = by[key]
+        f, mu, sd = mean_curve(runs)
         ax.plot(f, mu, "-", color=c, label=lab)
         ax.fill_between(f, mu - sd, mu + sd, color=c, alpha=0.2)
+        # mark the stage-1 -> stage-2 (superposed -> normal recovery) handoff
+        if key[0] != "none":
+            stages = [d["stage"] for d in runs[0]["history"][:len(f)]]
+            ti = next((i for i in range(1, len(stages))
+                       if stages[i] == "S2" and stages[i - 1] == "S1"), None)
+            if ti is not None:
+                ax.scatter([f[ti]], [mu[ti]], color=c, marker="*", s=200,
+                           zorder=6, edgecolor="k", linewidth=0.6)
+    ax.scatter([], [], color="k", marker="*", s=120, label="★ stage1→stage2 handoff")
     ax.set_xlabel("cumulative recorded FLOPs (student+teacher)")
     ax.set_title(f"{tag} teacher")
     ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
