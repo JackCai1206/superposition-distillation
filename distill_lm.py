@@ -16,7 +16,7 @@ import os
 import torch
 import torch.nn.functional as F
 
-from flops import FlopCounter, model_flops_from_config
+from flops import FlopCounter, measure_step_flops, model_flops_from_config
 from kd_loss import chunked_distill_loss, wsd_alpha, wsd_lr_mult
 from model import load_model, superposed_hidden, tiny_model
 from nl_data import VOCAB_SIZE, eval_lm_loss, get_batch, load_split
@@ -77,29 +77,35 @@ def main():
     s_head = student.get_output_embeddings().weight
     t_head = teacher.get_output_embeddings().weight
 
-    def step_once(normal):
+    def step_once(normal, measure=False):
         ids, mask = get_batch(train, args.batch_size, args.seq_len, dev, g)
         if normal:
             sup, eff = superpose_none(ids, mask), 1.0
         else:
             sup, eff = make_superposed(args.method, ids, mask, args.merge_k, args.fixed_lambda)
-        with torch.no_grad():
-            t_hidden = superposed_hidden(teacher, sup)
-        s_hidden = superposed_hidden(student, sup)
-        if normal:
-            labels = ids.clone()
-            labels[:, :-1] = ids[:, 1:]
-            labels[:, -1] = -100                       # next-token CE, last has no target
-            loss, parts = chunked_distill_loss(s_hidden, s_head, t_hidden, t_head,
-                                               args.temperature, mask=sup.mask,
-                                               labels=labels, alpha=wsd_alpha_step)
-        else:
-            loss, parts = chunked_distill_loss(s_hidden, s_head, t_hidden, t_head,
-                                               args.temperature, mask=sup.mask)
-        opt.zero_grad(); loss.backward()
+        h = {}
+
+        def fwd_bwd():
+            with torch.no_grad():
+                t_hidden = superposed_hidden(teacher, sup)
+            s_hidden = superposed_hidden(student, sup)
+            if normal:
+                labels = ids.clone()
+                labels[:, :-1] = ids[:, 1:]
+                labels[:, -1] = -100                   # next-token CE, last has no target
+                loss, parts = chunked_distill_loss(s_hidden, s_head, t_hidden, t_head,
+                                                   args.temperature, mask=sup.mask,
+                                                   labels=labels, alpha=wsd_alpha_step)
+            else:
+                loss, parts = chunked_distill_loss(s_hidden, s_head, t_hidden, t_head,
+                                                   args.temperature, mask=sup.mask)
+            opt.zero_grad(); loss.backward()
+            h.update(loss=loss.item(), kd=float(parts["kd"]), ce=float(parts["ce"]))
+
+        measured = measure_step_flops(fwd_bwd) if measure else (fwd_bwd() or None)
         torch.nn.utils.clip_grad_norm_(student.parameters(), 1.0)
         opt.step()
-        return loss.item(), float(parts["kd"]), float(parts["ce"]), sup.ids.shape[1], sup.ids.shape[0], eff
+        return h["loss"], h["kd"], h["ce"], sup.ids.shape[1], sup.ids.shape[0], eff, measured
 
     gstep = 0
     student.train()
@@ -110,17 +116,17 @@ def main():
             for grp in opt.param_groups:
                 grp["lr"] = lr
             wsd_alpha_step = wsd_alpha(step, steps, alpha_max=0.9)
-            loss, kd, ce, T, outB, eff = step_once(normal)
-            fc.add_step(seq_len=T, batch=outB, effective_sequences=eff * outB)
+            loss, kd, ce, T, outB, eff, measured = step_once(normal, measure=(step == 0))
+            fc.add_step(seq_len=T, batch=outB, effective_sequences=eff * outB, measured_step=measured)
             gstep += 1
             if step % args.eval_every == 0 or step == steps - 1:
                 vloss = eval_lm_loss(student, val, dev, n_batches=30, batch=16, seq_len=args.seq_len)
                 student.train()
                 s = fc.summary()
-                print(f"[{tag}] step {step:>5} loss={loss:.3f} kd={kd:.3f} ce={ce:.3f} "
-                      f"val={vloss:.3f} flops={s['total_flops']:.3e}")
+                print(f"[{tag}] step {step:>5} loss={loss:.3f} ce={ce:.3f} val={vloss:.3f} "
+                      f"est={s['total_flops']:.3e} rec={s['recorded_flops']:.3e}")
                 hist.append({"stage": tag, "step": step, "val_loss": vloss,
-                             "flops": s["total_flops"], "loss": loss})
+                             "flops": s["total_flops"], "recorded_flops": s["recorded_flops"], "loss": loss})
 
     student.save_pretrained(out)
     json.dump({"task": "tinystories_distill", "teacher": args.teacher, "teacher_tag": ttag,

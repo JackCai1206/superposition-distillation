@@ -60,27 +60,47 @@ class FlopCounter:
         self.teacher_fm = teacher_fm
         self.student_flops = 0.0
         self.teacher_flops = 0.0
-        self.sequences_seen = 0.0   # effective #source-sequences of learning signal
-        self.tokens_processed = 0.0 # student forward positions
+        self.measured_flops = 0.0    # actual op-level FLOPs (recorded), incl. any recompute
+        self._rate = {}              # (seq_len,batch) -> measured per-step FLOPs
+        self.sequences_seen = 0.0    # effective #source-sequences of learning signal
+        self.tokens_processed = 0.0  # student forward positions
 
-    def add_step(self, seq_len: int, batch: int, effective_sequences: float):
+    def add_step(self, seq_len: int, batch: int, effective_sequences: float,
+                 measured_step: float | None = None):
         self.student_flops += self.fm.train_step_flops(seq_len, batch)
         if self.teacher_fm is not None:
             self.teacher_flops += self.teacher_fm.forward_flops(seq_len, batch)
+        # recorded: cache the measured per-step rate per (seq_len,batch); accumulate it
+        key = (seq_len, batch)
+        if measured_step is not None:
+            self._rate[key] = measured_step
+        if key in self._rate:
+            self.measured_flops += self._rate[key]
         self.tokens_processed += seq_len * batch
         self.sequences_seen += effective_sequences
 
     @property
-    def total_flops(self) -> float:
+    def total_flops(self) -> float:    # estimated (analytic), student+teacher
         return self.student_flops + self.teacher_flops
 
     def summary(self) -> dict:
-        tot = self.total_flops
+        est = self.total_flops
         return {
-            "total_flops": tot,
+            "total_flops": est,                  # estimated (analytic) — kept as the default key
+            "estimated_flops": est,
+            "recorded_flops": self.measured_flops,  # actual op-level (FlopCounterMode)
             "student_flops": self.student_flops,
             "teacher_flops": self.teacher_flops,
             "sequences_seen": self.sequences_seen,
             "tokens_processed": self.tokens_processed,
-            "flops_per_sequence": tot / max(self.sequences_seen, 1.0),
+            "flops_per_sequence": est / max(self.sequences_seen, 1.0),
         }
+
+
+def measure_step_flops(fwd_bwd_fn) -> float:
+    """Actual op-level FLOPs of one training step (fwd+bwd) via torch FlopCounterMode."""
+    from torch.utils.flop_counter import FlopCounterMode
+    fcm = FlopCounterMode(display=False)
+    with fcm:
+        fwd_bwd_fn()
+    return float(fcm.get_total_flops())
