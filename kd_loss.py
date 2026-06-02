@@ -76,3 +76,20 @@ def wsd_alpha(step: int, total_steps: int, alpha_max: float = 0.9,
     if p > 1.0 - decay_frac:
         return alpha_max * max(0.0, (1.0 - p) / decay_frac)
     return alpha_max
+
+
+def wsd_lr_mult(global_step: int, total_steps: int, warmup: int = 50,
+                decay: int = 300) -> float:
+    """WSD learning-rate multiplier over the WHOLE two-stage run.
+
+    One warmup at the very start (Stage 1), a length-agnostic stable phase
+    spanning the stage boundary, and a fixed terminal decay window (in steps, not
+    a fraction of total) so configs with different Stage-1 budgets stay comparable
+    and the cooldown lands after the threshold crossing.
+    """
+    if global_step < warmup:
+        return (global_step + 1) / warmup
+    decay_start = total_steps - decay
+    if global_step >= decay_start:
+        return max(0.0, (total_steps - global_step) / decay)
+    return 1.0

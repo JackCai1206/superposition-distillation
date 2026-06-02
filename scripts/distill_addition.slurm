@@ -28,4 +28,4 @@ nvidia-smi --query-gpu=name --format=csv,noheader
   --teacher "$TEACHER" --method "$METHOD" \
   --n_digits "$NDIG" --fixed_lambda "$LAMBDA" \
   --stage1_steps "$S1" --stage2_steps "$S2" --batch_size 512 \
-  --device cuda --eval_every 250
+  --device cuda --eval_every 50

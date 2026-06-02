@@ -21,7 +21,7 @@ import torch.nn.functional as F
 
 from addition import (PAD_ID, VOCAB_SIZE, exact_match, sample_batch, seq_len_for)
 from flops import FlopCounter, model_flops_from_config
-from kd_loss import forward_kl, wsd_alpha
+from kd_loss import forward_kl, wsd_alpha, wsd_lr_mult
 from model import load_model, superposed_logits, tiny_model
 from superpose import (superpose_cross_seq, superpose_none, superpose_token_merge)
 
@@ -58,8 +58,10 @@ def main():
     args = ap.parse_args()
 
     dev = args.device
+    torch.manual_seed(args.seed)            # seed model init + data so seeds differ
     jid = os.environ.get("SLURM_JOB_ID", "local")
-    out = f"outputs/distadd_{args.method}_d{args.n_digits}_{jid}"
+    # unique per (method, lambda, stage1, seed) so packed runs in one job don't collide
+    out = f"outputs/distadd_{args.method}_d{args.n_digits}_l{args.fixed_lambda}_s1{args.stage1_steps}_seed{args.seed}_{jid}"
     os.makedirs(out, exist_ok=True)
 
     teacher = load_model(args.teacher, dtype=torch.bfloat16, device=dev, frozen=True)
@@ -101,11 +103,17 @@ def main():
         fc.add_step(seq_len=T, batch=sup.ids.shape[0], effective_sequences=eff * sup.ids.shape[0])
         return loss.item(), kd.item(), float(ce)
 
+    total_steps = args.stage1_steps + args.stage2_steps
+    gstep = 0
     student.train()
     for tag, steps, normal in [("S1", args.stage1_steps, False), ("S2", args.stage2_steps, True)]:
         print(f"== {tag} ({'normal' if normal else args.method}) ==")
         for step in range(steps):
+            lr = args.lr * wsd_lr_mult(gstep, total_steps)   # WSD-LR over the whole 2-stage run
+            for grp in opt.param_groups:
+                grp["lr"] = lr
             loss, kd, ce = step_once(step, normal, steps)
+            gstep += 1
             if step % args.eval_every == 0 or step == steps - 1:
                 acc = exact_match(student, args.n_digits, dev, n=512); student.train()
                 s = fc.summary()
@@ -119,6 +127,7 @@ def main():
                "n_digits": args.n_digits, "fixed_lambda": args.fixed_lambda,
                "merge_k": args.merge_k, "student_params": np_s,
                "stage1_steps": args.stage1_steps, "stage2_steps": args.stage2_steps,
+               "eval_every": args.eval_every, "seed": args.seed, "lr_sched": "wsd",
                "final": hist[-1] if hist else None, "history": hist, "flops": fc.summary()}
     with open(os.path.join(out, "results.json"), "w") as f:
         json.dump(results, f, indent=2)
