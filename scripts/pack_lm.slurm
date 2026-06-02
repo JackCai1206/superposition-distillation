@@ -24,7 +24,7 @@ for spec in "$@"; do
   echo "  launch $m lam=$lam s1=$s1 s2=$s2 seed=$seed"
   .venv/bin/python -u distill_lm.py --teacher "$TEACHER" --method "$m" \
     --fixed_lambda "$lam" --stage1_steps "$s1" --stage2_steps "$s2" --seed "$seed" \
-    --batch_size 32 --seq_len 512 --device cuda --eval_every 100 &
+    --batch_size 64 --seq_len 512 --device cuda --eval_every 100 &
   pids+=($!)
 done
 fail=0

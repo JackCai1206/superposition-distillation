@@ -65,6 +65,61 @@ def kd_loss(student_logits: torch.Tensor, teacher_logits: torch.Tensor,
     return total, {"kd": kd.detach(), "ce": ce.detach()}
 
 
+def chunked_distill_loss(s_hidden, s_head_w, t_hidden, t_head_w, temperature=2.0,
+                         mask=None, labels=None, alpha=1.0, chunk=2048,
+                         ignore_index=-100):
+    """Fused-linear forward-KL (+ optional CE), chunked over tokens with gradient
+    checkpointing so the full [B,T,V] logits are never materialized.
+
+    s_hidden/t_hidden: (B,T,H*) last hidden states. s_head_w/t_head_w: (V,H*) LM-head
+    weights. Returns (total, {kd, ce}). KD uses teacher logits (no_grad). If labels
+    given and alpha<1, adds (1-alpha)*CE on `labels` (already shifted; ignore_index
+    masks the last position). Same math as forward_kl, O(chunk*V) peak memory.
+    """
+    import torch.utils.checkpoint as ckpt
+    B, T, _ = s_hidden.shape
+    sh = s_hidden.reshape(B * T, -1)
+    th = t_hidden.reshape(B * T, -1)
+    m = (mask.reshape(B * T).float() if mask is not None else sh.new_ones(B * T))
+    lab = labels.reshape(B * T) if labels is not None else None
+    t = temperature
+    denom = m.sum().clamp_min(1.0)
+    kd_sum = sh.new_zeros(())
+    ce_sum = sh.new_zeros(())
+    ce_n = sh.new_zeros(())
+
+    def piece(sh_c, th_c, m_c, lab_c):
+        s_logits = sh_c @ s_head_w.t()
+        with torch.no_grad():
+            t_logits = th_c @ t_head_w.t()
+        logp_s = F.log_softmax(s_logits / t, dim=-1)
+        p_t = F.softmax(t_logits / t, dim=-1)
+        logp_t = F.log_softmax(t_logits / t, dim=-1)
+        kl = (p_t * (logp_t - logp_s)).sum(-1) * (t * t)            # (c,)
+        kd = (kl * m_c).sum()
+        if lab_c is not None and alpha < 1.0:
+            ce_tok = F.cross_entropy(s_logits, lab_c, ignore_index=ignore_index,
+                                     reduction="none")               # (c,)
+            valid = (lab_c != ignore_index).float()
+            return kd, (ce_tok * valid).sum(), valid.sum()
+        return kd, sh.new_zeros(()), sh.new_zeros(())
+
+    for i in range(0, B * T, chunk):
+        sl = slice(i, i + chunk)
+        kd_c, ce_c, n_c = ckpt.checkpoint(
+            piece, sh[sl], th[sl], m[sl],
+            (lab[sl] if lab is not None else None), use_reentrant=False)
+        kd_sum = kd_sum + kd_c
+        ce_sum = ce_sum + ce_c
+        ce_n = ce_n + n_c
+
+    kd = kd_sum / denom
+    if labels is not None and alpha < 1.0:
+        ce = ce_sum / ce_n.clamp_min(1.0)
+        return alpha * kd + (1 - alpha) * ce, {"kd": kd.detach(), "ce": ce.detach()}
+    return kd, {"kd": kd.detach(), "ce": kd.new_zeros(())}
+
+
 def wsd_alpha(step: int, total_steps: int, alpha_max: float = 0.9,
               warmup_frac: float = 0.1, decay_frac: float = 0.1) -> float:
     """Warmup-Stable-Decay schedule for the KD weight alpha (Peng et al. 2025)."""

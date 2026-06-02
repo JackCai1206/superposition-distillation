@@ -26,9 +26,13 @@ def flops_to_loss(h, thresh):
 
 def main():
     thresh = float(sys.argv[1]) if len(sys.argv) > 1 else 2.0
+    tag = sys.argv[2] if len(sys.argv) > 2 else None   # 'ctrl' or 'gpt2'
     runs = [json.load(open(p)) for p in glob.glob("outputs/lmdist_*/results.json")]
+    if tag:
+        runs = [r for r in runs if r.get("teacher_tag") == tag]
     if not runs:
-        print("no TinyStories distill runs yet"); return
+        print(f"no TinyStories distill runs (tag={tag}) yet"); return
+    print(f"teacher tag = {tag or 'ALL'}")
 
     # show the reachable val-loss range to help pick a threshold
     finals = sorted(min(d["val_loss"] for d in r["history"]) for r in runs)
