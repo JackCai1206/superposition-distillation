@@ -49,7 +49,7 @@ def main():
     npar = sum(p.numel() for p in model.parameters())
     print(f"teacher params: {npar/1e6:.1f}M (tied) | vocab={VOCAB_SIZE} | seq={args.seq_len}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.1, betas=(0.9, 0.95))
-    fc = FlopCounter(model_flops_from_config(model.config))
+    fc = FlopCounter(model_flops_from_config(model.config), opt_params=sum(p.numel() for p in model.parameters() if p.requires_grad))
     g = torch.Generator().manual_seed(args.seed)
     hist = []
 

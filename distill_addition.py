@@ -72,7 +72,8 @@ def main():
     opt = torch.optim.AdamW(student.parameters(), lr=args.lr, weight_decay=0.1)
     # count the frozen teacher's forward FLOPs too (cross_seq halves its batch)
     fc = FlopCounter(model_flops_from_config(student.config),
-                     teacher_fm=model_flops_from_config(teacher.config))
+                     teacher_fm=model_flops_from_config(teacher.config),
+                     opt_params=sum(p.numel() for p in student.parameters() if p.requires_grad))
     g = torch.Generator().manual_seed(args.seed)
     L = seq_len_for(args.n_digits)
     hist = []

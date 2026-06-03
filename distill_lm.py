@@ -72,7 +72,8 @@ def main():
     print(f"teacher={args.teacher} | student {np_s/1e6:.1f}M | method={args.method}")
     opt = torch.optim.AdamW(student.parameters(), lr=args.lr, weight_decay=0.1, betas=(0.9, 0.95))
     fc = FlopCounter(model_flops_from_config(student.config),
-                     teacher_fm=model_flops_from_config(teacher.config))
+                     teacher_fm=model_flops_from_config(teacher.config),
+                     opt_params=sum(p.numel() for p in student.parameters() if p.requires_grad))
     g = torch.Generator().manual_seed(args.seed)
     total_steps = args.stage1_steps + args.stage2_steps
     hist = []

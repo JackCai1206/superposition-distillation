@@ -51,7 +51,7 @@ def main():
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model params: {n_params/1e6:.2f}M | seq_len={seq_len_for(args.n_digits)} | vocab={VOCAB_SIZE}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    fc = FlopCounter(model_flops_from_config(model.config))
+    fc = FlopCounter(model_flops_from_config(model.config), opt_params=sum(p.numel() for p in model.parameters() if p.requires_grad))
     g = torch.Generator().manual_seed(args.seed)
 
     L = seq_len_for(args.n_digits)
