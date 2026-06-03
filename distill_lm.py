@@ -48,6 +48,8 @@ def main():
     ap.add_argument("--fixed_lambda", type=float, default=0.7)
     ap.add_argument("--merge_k", type=int, default=2)
     ap.add_argument("--temperature", type=float, default=2.0)
+    ap.add_argument("--loss_mode", default="kd_ce", choices=["kd_ce", "pure_kd"],
+                    help="pure_kd: forward-KL only (no CE, no alpha) -> student matches teacher")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--eval_every", type=int, default=100)
     ap.add_argument("--seed", type=int, default=0)
@@ -57,7 +59,8 @@ def main():
     torch.manual_seed(args.seed)
     jid = os.environ.get("SLURM_JOB_ID", "local")
     ttag = "gpt2" if "gpt2" in args.teacher.lower() else "ctrl"   # which teacher
-    out = f"outputs/lmdist_{ttag}_{args.method}_l{args.fixed_lambda}_s1{args.stage1_steps}_seed{args.seed}_{jid}"
+    mtag = "kd" if args.loss_mode == "pure_kd" else "ce"          # which loss
+    out = f"outputs/lmdist_{ttag}_{mtag}_{args.method}_l{args.fixed_lambda}_s1{args.stage1_steps}_seed{args.seed}_{jid}"
     os.makedirs(out, exist_ok=True)
 
     train = load_split("train"); val = load_split("val")
@@ -89,14 +92,14 @@ def main():
             with torch.no_grad():
                 t_hidden = superposed_hidden(teacher, sup)
             s_hidden = superposed_hidden(student, sup)
-            if normal:
+            if normal and args.loss_mode == "kd_ce":
                 labels = ids.clone()
                 labels[:, :-1] = ids[:, 1:]
                 labels[:, -1] = -100                   # next-token CE, last has no target
                 loss, parts = chunked_distill_loss(s_hidden, s_head, t_hidden, t_head,
                                                    args.temperature, mask=sup.mask,
                                                    labels=labels, alpha=wsd_alpha_step)
-            else:
+            else:                                       # pure KD (forward-KL only)
                 loss, parts = chunked_distill_loss(s_hidden, s_head, t_hidden, t_head,
                                                    args.temperature, mask=sup.mask)
             opt.zero_grad(); loss.backward()
@@ -130,7 +133,7 @@ def main():
 
     student.save_pretrained(out)
     json.dump({"task": "tinystories_distill", "teacher": args.teacher, "teacher_tag": ttag,
-               "method": args.method, "fixed_lambda": args.fixed_lambda,
+               "loss_mode": args.loss_mode, "method": args.method, "fixed_lambda": args.fixed_lambda,
                "merge_k": args.merge_k, "stage1_steps": args.stage1_steps, "stage2_steps": args.stage2_steps,
                "seed": args.seed, "lr_sched": "wsd", "student_params": np_s,
                "final_val_loss": hist[-1]["val_loss"], "history": hist, "flops": fc.summary()},

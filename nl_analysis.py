@@ -29,10 +29,13 @@ def flops_to(h, target, key):
 
 def main():
     tag = sys.argv[1] if len(sys.argv) > 1 else "ctrl"
+    mode = sys.argv[2] if len(sys.argv) > 2 else "kd_ce"
     runs = [json.load(open(p)) for p in glob.glob("outputs/lmdist_*/results.json")]
-    runs = [r for r in runs if r.get("teacher_tag") == tag and "recorded_flops" in r["history"][-1]]
+    runs = [r for r in runs if r.get("teacher_tag") == tag
+            and r.get("loss_mode", "kd_ce") == mode and "recorded_flops" in r["history"][-1]]
     if not runs:
-        print(f"no recorded-flops runs for tag={tag} yet"); return
+        print(f"no recorded-flops runs for tag={tag} mode={mode} yet"); return
+    print(f"[loss_mode={mode}]")
 
     base = [r for r in runs if r["method"] == "none" and r.get("stage1_steps") == 0 and r.get("stage2_steps", 0) >= 3000]
     sup = [r for r in runs if r["method"] != "none"]
