@@ -1,9 +1,9 @@
 """Informative plots for the corrected TinyStories de-risk (fair baseline).
 
-Fig A  f"outputs/nl_isoflops{SUFFIX}.png"   : val-loss vs cumulative RECORDED FLOPs, fair-none
+Fig A  outputs/nl_isoflops[_mode].png   : val-loss vs cumulative RECORDED FLOPs, fair-none
         vs superposition (mean +/- std over seeds), one panel per teacher. The
         leftward shift = the iso-FLOP win.
-Fig B  f"outputs/nl_wincurve{SUFFIX}.png"   : win-factor vs target val-loss (curve, not one
+Fig B  outputs/nl_wincurve[_mode].png   : win-factor vs target val-loss (curve, not one
         threshold), both teachers x both methods. Flat ~1.2x = robust, not cherry-picked.
 """
 
@@ -82,8 +82,8 @@ for ax, tag in zip(axes, ["ctrl", "gpt2"]):
     ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
 axes[0].set_ylabel("val loss"); axes[0].set_ylim(1.5, 3.2)
 fig.suptitle("TinyStories de-risk (fair baseline): iso-FLOP curves, 5 seeds")
-fig.tight_layout(); fig.savefig("f"outputs/nl_isoflops{SUFFIX}.png"", dpi=130)
-print("saved f"outputs/nl_isoflops{SUFFIX}.png"")
+fig.tight_layout(); fig.savefig(outputs/nl_isoflops[_mode].png, dpi=130)
+print(f"saved outputs/nl_isoflops{SUFFIX}.png")
 
 # ---------- Fig B: win-factor vs target ----------
 fig, ax = plt.subplots(figsize=(8, 5))
@@ -113,5 +113,5 @@ ax.axhline(1.0, color="k", ls=":", alpha=0.5)
 ax.set_xlabel("target val loss above baseline's converged loss"); ax.set_ylabel("win-factor vs none")
 ax.set_title("Win-factor vs target (flat ~1.2x = robust, not threshold-picked)")
 ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
-fig.tight_layout(); fig.savefig("f"outputs/nl_wincurve{SUFFIX}.png"", dpi=130)
-print("saved f"outputs/nl_wincurve{SUFFIX}.png"")
+fig.tight_layout(); fig.savefig(outputs/nl_wincurve[_mode].png, dpi=130)
+print(f"saved outputs/nl_wincurve{SUFFIX}.png")
