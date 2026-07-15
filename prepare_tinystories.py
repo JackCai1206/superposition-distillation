@@ -12,13 +12,15 @@ import numpy as np
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-OUT = "data_cache/tinystories"
-TRAIN_TOKENS = 50_000_000
-VAL_TOKENS = 1_000_000
+OUT = os.environ.get("SD_DATA_DIR", "data_cache/tinystories")
+TOKENIZER = os.environ.get("SD_TOKENIZER", "gpt2")
+TRAIN_TOKENS = int(os.environ.get("SD_TRAIN_TOKENS", 50_000_000))
+VAL_TOKENS = int(os.environ.get("SD_VAL_TOKENS", 1_000_000))
 os.makedirs(OUT, exist_ok=True)
 
-tok = AutoTokenizer.from_pretrained("gpt2")
-EOT = tok.eos_token_id
+tok = AutoTokenizer.from_pretrained(TOKENIZER)
+EOT = tok.eos_token_id if tok.eos_token_id is not None else 0
+assert tok.vocab_size <= 65535, f"vocab {tok.vocab_size} > uint16; widen dtype"
 
 
 def dump(split, budget, path):

@@ -10,13 +10,16 @@ import os
 import numpy as np
 import torch
 
-DATA = "data_cache/tinystories"
-VOCAB_SIZE = 50257   # gpt2
+DATA = os.environ.get("SD_DATA_DIR", "data_cache/tinystories")
+VOCAB_SIZE = int(os.environ.get("SD_VOCAB", 50257))   # gpt2 default; SmolLM2=49152; Qwen2.5=151936
+# uint16 caps vocab at 65535. Big-vocab tokenizers (Qwen/Llama-3/Gemma) need uint32 -> set
+# SD_DTYPE=uint32 (MUST match prepare_fineweb.py, else the memmap decodes to garbage token ids).
+DTYPE = np.uint32 if os.environ.get("SD_DTYPE", "uint16") == "uint32" else np.uint16
 
 
 def load_split(split: str):
     path = os.path.join(DATA, f"{split}.bin")
-    return np.memmap(path, dtype=np.uint16, mode="r")
+    return np.memmap(path, dtype=DTYPE, mode="r")
 
 
 def get_batch(data, batch: int, seq_len: int, device, generator: torch.Generator):

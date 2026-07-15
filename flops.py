@@ -105,10 +105,52 @@ class FlopCounter:
         }
 
 
-def measure_step_flops(fwd_bwd_fn) -> float:
-    """Actual op-level FLOPs of one training step (fwd+bwd) via torch FlopCounterMode."""
+def _gqa_sdpa_flop(query_shape, key_shape, value_shape, *args, out_shape=None, **kwargs) -> int:
+    """GQA-correct scaled-dot-product-attention FLOPs.
+
+    torch's builtin sdpa_flop_count (in older torch, e.g. the NVIDIA 25.08 image)
+    asserts query-heads == key-heads, which is FALSE for grouped-query attention
+    -> every real Qwen2.5 model uses GQA, so the builtin crashes. The kernel
+    broadcasts the h_kv key/value heads up to the h_q query heads, so both matmuls
+    cost h_q heads: 2*b*h_q*s_q*s_k*(d_q + d_v).
+    """
+    b, h_q, s_q, d_q = query_shape
+    s_k = key_shape[2]
+    d_v = value_shape[-1]
+    return 2 * b * h_q * s_q * s_k * (d_q + d_v)
+
+
+def measure_step_flops(fwd_bwd_fn):
+    """Actual op-level FLOPs of one training step (fwd+bwd) via torch FlopCounterMode.
+
+    Overrides the SDPA flop formula with a GQA-correct one (see _gqa_sdpa_flop).
+    Returns None if op-level counting is unavailable on this torch build -- the
+    analytic accounting is the primary, audited metric; op-level is a cross-check.
+    On failure the step is re-run cleanly so gradients are still populated for the
+    optimizer step.
+    """
+    import torch
     from torch.utils.flop_counter import FlopCounterMode
-    fcm = FlopCounterMode(display=False)
-    with fcm:
-        fwd_bwd_fn()
-    return float(fcm.get_total_flops())
+    custom = {}
+    for nm in ("_scaled_dot_product_efficient_attention",
+               "_scaled_dot_product_flash_attention",
+               "_scaled_dot_product_cudnn_attention"):
+        op = getattr(torch.ops.aten, nm, None)
+        if op is not None:
+            custom[op] = _gqa_sdpa_flop
+    try:
+        fcm = FlopCounterMode(display=False, custom_mapping=custom)
+        with fcm:
+            fwd_bwd_fn()
+        return float(fcm.get_total_flops())
+    except Exception as e:
+        msg = f"{type(e).__name__}: {str(e)[:80]}"
+        e = None   # drop the exception/traceback -> releases the frame locals (the
+                   # failed graph + activations) so empty_cache can actually free them
+        print(f"[flops] op-level measurement unavailable ({msg}); analytic FLOPs only")
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        fwd_bwd_fn()   # clean re-run so grads exist for the subsequent opt.step()
+        return None

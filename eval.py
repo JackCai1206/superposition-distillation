@@ -49,8 +49,17 @@ def _gold(ex):
 
 
 @torch.no_grad()
-def eval_math(student, tokenizer, device, which="math500", n=100, max_new_tokens=512):
-    """Generate solutions and score with math_verify. Returns accuracy."""
+def eval_math(student, tokenizer, device, which="math500", n=100, max_new_tokens=2048,
+              prompt_style="train"):
+    """Generate solutions and score with math_verify. Returns accuracy.
+
+    The student is a base model distilled on `problem\\nsolution` (data.py), and the
+    reasoning teacher emits long CoT -> two things matter for a non-zero score:
+      - prompt_style="train": match training format (problem + newline), no unseen
+        instruction text. "instruct" adds an explicit boxed-answer instruction.
+      - max_new_tokens large enough for CoT (R1/Nemotron solutions run thousands of
+        tokens; 512 truncates before \\boxed{} -> spurious 0%).
+    """
     from datasets import load_dataset
     from math_verify import parse, verify
 
@@ -61,17 +70,22 @@ def eval_math(student, tokenizer, device, which="math500", n=100, max_new_tokens
     correct = 0
     for ex in ds:
         problem = ex.get("problem") or ex.get("question")
-        prompt = f"{problem}\nPlease reason step by step, and put your final answer within \\boxed{{}}."
+        if prompt_style == "instruct":
+            prompt = f"{problem}\nPlease reason step by step, and put your final answer within \\boxed{{}}."
+        else:
+            prompt = f"{problem.rstrip()}\n"           # training-matched continuation
         enc = tokenizer(prompt, return_tensors="pt").to(device)
         out = student.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False,
-                               pad_token_id=tokenizer.pad_token_id)
+                               pad_token_id=tokenizer.pad_token_id,
+                               eos_token_id=tokenizer.eos_token_id)
         text = tokenizer.decode(out[0, enc.input_ids.shape[1]:], skip_special_tokens=True)
         try:
             if verify(parse(_gold(ex)), parse(text)):
                 correct += 1
         except Exception:
             pass
-    return {"dataset": which, "n": n, "accuracy": correct / max(n, 1)}
+    return {"dataset": which, "n": n, "accuracy": correct / max(n, 1),
+            "max_new_tokens": max_new_tokens, "prompt_style": prompt_style}
 
 
 def main():

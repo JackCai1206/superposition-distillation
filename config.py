@@ -7,9 +7,16 @@ from dataclasses import dataclass, field
 
 @dataclass
 class ModelConfig:
-    teacher: str = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
-    student: str = "Qwen/Qwen2.5-0.5B"
+    # reasoning teacher -> math student, shared Qwen2.5 tokenizer (white-box logit KD
+    # valid). OpenMath-Nemotron-7B = Qwen2.5-Math-7B SFT'd on exactly OpenMathReasoning.
+    # Student Qwen2.5-Math-1.5B-Instruct matches the teacher's math lineage; it ships
+    # at 4096 ctx so we apply the Nemotron RoPE fix (theta 500000, 32K) for long CoT.
+    teacher: str = "nvidia/OpenMath-Nemotron-7B"
+    student: str = "Qwen/Qwen2.5-Math-1.5B-Instruct"
     dtype: str = "bfloat16"
+    student_max_pos: int | None = 32768       # RoPE context extension for the student
+    student_rope_theta: float | None = 500000.0
+    student_init: str = "pretrained"          # 'pretrained' | 'random' (from-scratch distill)
 
 
 @dataclass
@@ -21,6 +28,10 @@ class DataConfig:
     reasoning_split: str = "cot"     # R1-generated CoT traces (problem + generated_solution)
     seq_len: int = 1024
     max_examples: int | None = None
+    # reasoning data: keep each (problem + full CoT solution) as ONE sequence
+    # (truncate to seq_len, pad in the batch) instead of greedily packing -> the
+    # student learns coherent reasoning instead of fragments split across blocks.
+    reasoning_packed: bool = False
 
 
 @dataclass

@@ -1,8 +1,11 @@
-"""Char-level integer-addition task with LSB-first (digit-reversed) answers.
+"""Char-level integer-addition task with ALL numbers digit-reversed (LSB-first).
 
-Format:  "457+638=5901;"   where the answer 1095 is written reversed -> "5901"
-and ';' is EOS. The reversed answer lets a causal model emit least-significant
-digit first, so carries propagate left-to-right.
+Format:  "754+836=5901;"   where a=457->"754", b=638->"836", answer 1095->"5901",
+and ';' is EOS. Reversing the OPERANDS as well as the answer aligns all least-
+significant digits at the front, so the carry propagates left-to-right in a single
+pass as the model reads & generates — the standard trick that makes multi-digit
+addition learnable for a small causal model (vs. only reversing the answer, which
+forces it to cross-align the MSB-first operands' tails and caps out on long carries).
 
 Produces plain token-id tensors so the same superpose.py collators
 (none/cross_seq/token_merge) and kd_loss apply unchanged in the distillation step.
@@ -43,8 +46,8 @@ def sample_batch(batch: int, n_digits: int, device, generator: torch.Generator):
     loss_mask = torch.zeros((batch, L), dtype=torch.bool)
     for i in range(batch):
         a, b = ops[i].tolist()
-        prompt = f"{a}+{b}="
-        ans = str(a + b)[::-1]                 # LSB-first
+        prompt = f"{str(a)[::-1]}+{str(b)[::-1]}="   # operands LSB-first (reversed) too
+        ans = str(a + b)[::-1]                 # answer LSB-first
         seq = encode(prompt) + encode(ans) + [EOS_ID]
         seq = seq[:L]
         ids[i, :len(seq)] = torch.tensor(seq)
@@ -67,13 +70,14 @@ def exact_match(model, n_digits: int, device, n: int = 512, generator=None):
     ops = torch.randint(0, hi + 1, (n, 2), generator=g)
     ans_len = n_digits + 2                      # reversed sum + eos slack
     groups = defaultdict(list)
+    prompt_of = lambda a, b: f"{str(a)[::-1]}+{str(b)[::-1]}="   # operands LSB-first
     for a, b in ops.tolist():
-        groups[len(f"{a}+{b}=")].append((a, b))
+        groups[len(prompt_of(a, b))].append((a, b))
     correct = 0
     for plen, pairs in groups.items():
         for s in range(0, len(pairs), 256):
             chunk = pairs[s:s + 256]
-            out = torch.tensor([encode(f"{a}+{b}=") for a, b in chunk],
+            out = torch.tensor([encode(prompt_of(a, b)) for a, b in chunk],
                                dtype=torch.long, device=device)
             for _ in range(ans_len):
                 nxt = model(input_ids=out).logits[:, -1].argmax(-1, keepdim=True)

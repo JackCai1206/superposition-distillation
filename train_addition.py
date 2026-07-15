@@ -14,20 +14,18 @@ import os
 import torch
 import torch.nn.functional as F
 
-from addition import (VOCAB_SIZE, exact_match, sample_batch, seq_len_for)
+# task module (addition | multiplication) bound in main() via --task
+sample_batch = exact_match = seq_len_for = None
+VOCAB_SIZE = None
 from flops import FlopCounter, model_flops_from_config
 from model import tiny_model
 
 
-def build_10m(device, dtype):
-    # ~10M params: 16*H^2 per layer * L  ->  H=320,L=6 ~ 9.8M (+ tiny char embeds)
-    m = tiny_model(VOCAB_SIZE, hidden=320, layers=6, heads=8, inter=1280,
-                   dtype=dtype, device=device)
-    return m
-
-
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--task", default="addition", choices=["addition", "multiplication"])
+    ap.add_argument("--hidden", type=int, default=320)
+    ap.add_argument("--layers", type=int, default=6)
     ap.add_argument("--n_digits", type=int, default=4)
     ap.add_argument("--steps", type=int, default=8000)
     ap.add_argument("--batch_size", type=int, default=512)
@@ -41,13 +39,20 @@ def main():
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
+    global sample_batch, exact_match, seq_len_for, VOCAB_SIZE
+    if args.task == "multiplication":
+        from multiplication import sample_batch, exact_match, seq_len_for, VOCAB_SIZE
+    else:
+        from addition import sample_batch, exact_match, seq_len_for, VOCAB_SIZE
+
     dt = {"bfloat16": torch.bfloat16, "float32": torch.float32}[args.dtype]
     dev = args.device
     jid = os.environ.get("SLURM_JOB_ID", "local")
-    out = args.out or f"outputs/addition_10m_d{args.n_digits}_{jid}"
+    out = args.out or f"outputs/{args.task}_d{args.n_digits}_{jid}"
     os.makedirs(out, exist_ok=True)
 
-    model = build_10m(dev, dt)
+    model = tiny_model(VOCAB_SIZE, hidden=args.hidden, layers=args.layers, heads=8,
+                       inter=4 * args.hidden, dtype=dt, device=dev)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model params: {n_params/1e6:.2f}M | seq_len={seq_len_for(args.n_digits)} | vocab={VOCAB_SIZE}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

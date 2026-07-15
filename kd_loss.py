@@ -120,6 +120,29 @@ def chunked_distill_loss(s_hidden, s_head_w, t_hidden, t_head_w, temperature=2.0
     return kd, {"kd": kd.detach(), "ce": kd.new_zeros(())}
 
 
+def chunked_ce_loss(s_hidden, s_head_w, labels, chunk=2048, ignore_index=-100):
+    """Fused-linear CE-ONLY (no teacher), chunked + checkpointed like chunked_distill_loss.
+    For the teacher-free CE baseline in pretraining distillation."""
+    import torch.utils.checkpoint as ckpt
+    B, T, _ = s_hidden.shape
+    sh = s_hidden.reshape(B * T, -1)
+    lab = labels.reshape(B * T)
+    ce_sum = sh.new_zeros(()); n = sh.new_zeros(())
+
+    def piece(sh_c, lab_c):
+        logits = sh_c @ s_head_w.t()
+        ce = F.cross_entropy(logits, lab_c, ignore_index=ignore_index, reduction="none")
+        valid = (lab_c != ignore_index).float()
+        return (ce * valid).sum(), valid.sum()
+
+    for i in range(0, B * T, chunk):
+        sl = slice(i, i + chunk)
+        c, nn = ckpt.checkpoint(piece, sh[sl], lab[sl], use_reentrant=False)
+        ce_sum = ce_sum + c; n = n + nn
+    ce = ce_sum / n.clamp_min(1.0)
+    return ce, {"kd": ce.new_zeros(()), "ce": ce.detach()}
+
+
 def wsd_alpha(step: int, total_steps: int, alpha_max: float = 0.9,
               warmup_frac: float = 0.1, decay_frac: float = 0.1) -> float:
     """Warmup-Stable-Decay schedule for the KD weight alpha (Peng et al. 2025)."""

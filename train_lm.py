@@ -33,13 +33,14 @@ def main():
     ap.add_argument("--dtype", default="bfloat16")
     ap.add_argument("--eval_every", type=int, default=500)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
     dt = {"bfloat16": torch.bfloat16, "float32": torch.float32}[args.dtype]
     dev = args.device
     torch.manual_seed(args.seed)
     jid = os.environ.get("SLURM_JOB_ID", "local")
-    out = f"outputs/lm_teacher_h{args.hidden}l{args.layers}_{jid}"
+    out = args.out or f"outputs/lm_teacher_h{args.hidden}l{args.layers}_{jid}"
     os.makedirs(out, exist_ok=True)
 
     train = load_split("train"); val = load_split("val")
